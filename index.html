@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>媽媽的3D地鐵迷宮 - 出口標示版</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<style>
+    body {
+        background-color: #202020;
+        color: white;
+        font-family: 'Courier New', Courier, monospace;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        margin: 0;
+        overflow: hidden;
+        touch-action: none;
+    }
+    #game-container {
+        position: relative;
+        width: 640px;
+        height: 480px;
+        background: #000;
+    }
+    canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+        image-rendering: pixelated;
+    }
+    #ui-layer {
+        position: absolute;
+        top: 10px;
+        left: 0;
+        width: 100%;
+        text-align: center;
+        text-shadow: 1px 1px #000;
+        pointer-events: none;
+        z-index: 5;
+    }
+    /* 選單層：共用樣式 */
+    .menu-overlay {
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.85);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+        display: none; 
+    }
+    .menu-overlay h1 { color: #fff; margin-bottom: 10px; }
+    .menu-option {
+        font-size: 24px; margin: 10px; padding: 5px 15px; cursor: pointer; border: 2px solid transparent; color: #888;
+    }
+    .menu-option.selected {
+        color: #ffcc00; border: 2px solid #ffcc00; background: rgba(255, 204, 0, 0.2);
+    }
+    
+    /* 手機虛擬按鍵 */
+    #mobile-controls {
+        display: none; position: absolute; bottom: 20px; left: 20px; flex-direction: column; align-items: center; z-index: 20; opacity: 0.7;
+    }
+    .control-row { display: flex; }
+    .control-btn {
+        width: 70px; height: 70px; background-color: rgba(100, 100, 100, 0.5); border: 3px solid rgba(255, 255, 255, 0.7); border-radius: 10px; margin: 5px; display: flex; justify-content: center; align-items: center; font-size: 30px; color: white; user-select: none; touch-action: manipulation;
+    }
+    .control-btn:active { background-color: rgba(150, 150, 150, 0.8); }
+    #btn-enter {
+        position: absolute; bottom: 20px; right: 20px; width: 90px; height: 90px; font-size: 24px; border-radius: 50%; z-index: 20; display: none;
+    }
+    @media (max-width: 680px) {
+        #game-container { width: 96vw; height: 72vw; }
+        .control-btn { width: 60px; height: 60px; font-size: 24px; }
+    }
+</style>
+</head>
+<body>
+<div id="game-container">
+    <canvas id="gameCanvas" width="320" height="240"></canvas>
+    <div id="ui-layer" style="display:none;"><span id="score-display">SCORE: 0</span> | <span id="time-display">TIME: 180</span></div>
+    <div id="menu-layer" class="menu-overlay" style="display: flex;">
+        <h1>3D 地鐵迷宮</h1><p>Wolfenstein 風格</p><p style="color: #ffcc00; margin-top: 30px;">按 ENTER 進入遊戲</p><p style="font-size: 14px; color: #aaa;">(手機請按右下角按鈕)</p>
+    </div>
+    <div id="difficulty-layer" class="menu-overlay">
+        <h1>選擇難度</h1><div id="opt-easy" class="menu-option selected">EASY (有指引)</div><div id="opt-hard" class="menu-option">HARD (無指引)</div><p style="font-size: 14px; color: #aaa; margin-top: 20px;">上下鍵選擇，ENTER 確認</p>
+    </div>
+    <div id="gameover-layer" class="menu-overlay">
+        <h1 id="gameover-title"></h1><p id="gameover-score"></p><p style="color: #ffcc00; margin-top: 30px;">按 ENTER 回到標題</p>
+    </div>
+</div>
+<div id="mobile-controls">
+    <div class="control-row"><div class="control-btn" id="btn-up">↑</div></div>
+    <div class="control-row"><div class="control-btn" id="btn-left">↶</div><div class="control-btn" id="btn-down">↓</div><div class="control-btn" id="btn-right">↷</div></div>
+</div>
+<div class="control-btn" id="btn-enter">Enter</div>
+
+<script>
+// ===========================
+//  圖片資源
+// ===========================
+const bagImg = new Image();
+// 8-bit 藍色包包 Base64
+bagImg.src = 'bag.png';
+const necklaceImg = new Image();
+// 8-bit 金色項鍊 Base64
+necklaceImg.src = 'necklace.png';
+const ringImg = new Image();
+// 8-bit 鑽石戒指 Base64
+ringImg.src = 'ring.png';
+const arrowImg = new Image(); arrowImg.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAAXNSR0IArs4c6QAAAD5JREFUKFNjZEACj///Gf8TiRnwySNLYBIgDCIx4JNEFoAqwCqJLAAVgCqJLgAVgCqJLgAVgCqJLwA1nFADAB/rW/H/k6H3AAAAAElFTkSuQmCC';
+// 新增 EXIT 標示牌圖片
+const exitSignImg = new Image(); exitSignImg.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAICAyAAAEpQLcNAAAAAXNSR0IArs4c6QAAAGhJREFUKFNjZKAQcDAwMDBgkvz///8/LBJgGogN0kASIBuK3RCMz0W4DMARuM0gG4rTDTgNwWkI0UCM3RBMBiALInQDBjYEMwDZELwGogF0Q7AZgCyI1A3YDEAWROoGkgEjw9HwAAA10hYhYh+bLAAAAABJRU5ErkJggg==';
+
+// ===========================
+//  遊戲引擎設定
+// ===========================
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const screenWidth = canvas.width; const screenHeight = canvas.height;
+const STATE = { MENU: 0, DIFFICULTY: 1, PLAYING: 2, GAMEOVER: 3, WIN: 4 };
+let currentState = STATE.MENU;
+let difficulty = 'EASY'; let score = 0; let timeLeft = 180; let timerInterval = null;
+
+// 地圖: 1=牆, 0=路, 9=出口牆
+const mapWidth = 20; const mapHeight = 25;
+const gameMap = [
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1], 
+    [1,0,1,0,1,0,1,1,1,0,1,0,1,1,1,1,1,1,0,1],
+    [1,0,1,0,0,0,1,0,0,0,1,0,0,0,0,0,1,0,0,1],
+    [1,0,1,1,1,1,1,0,1,1,1,1,1,1,1,0,1,0,1,1],
+    [1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1,0,0,1],
+    [1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,1,1,0,1],
+    [1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,1,1],
+    [1,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,1],
+    [1,1,1,1,1,1,1,0,1,0,1,0,1,0,1,1,1,1,0,1],
+    [1,0,0,0,0,0,1,0,1,0,1,0,1,0,1,0,0,0,0,1],
+    [1,0,1,1,1,0,1,0,1,0,1,0,1,0,1,0,1,1,1,1],
+    [1,0,1,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,1],
+    [1,0,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1],
+    [1,0,1,1,1,1,1,1,1,0,1,0,1,1,1,1,1,0,1,1],
+    [1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0,0,1],
+    [1,1,1,1,1,1,1,0,1,0,1,1,1,1,1,0,1,0,1,1],
+    [1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,1],
+    [1,0,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,0,1,1],
+    [1,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1],
+    [1,0,1,0,1,1,1,1,1,0,1,0,1,1,1,1,1,1,1,1],
+    [1,0,1,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0,9,1], 
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+];
+
+let player = { x: 1.5, y: 1.5, dir: Math.PI / 2, rotSpeed: 0.05, moveSpeed: 0.08, radius: 0.3 };
+const FOV = Math.PI / 3;
+let items = [];
+const ITEM_TYPES = [
+    { img: bagImg, name: '包包', score: 100 }, { img: necklaceImg, name: '項鍊', score: 150 }, { img: ringImg, name: '戒指', score: 200 }
+];
+const keys = { up: false, down: false, left: false, right: false, enter: false, enterLocked: false };
+
+// ===========================
+//  初始化與事件
+// ===========================
+function init() {
+    setupInputs(); renderBackground(); setInterval(gameLoop, 1000 / 30);
+}
+function setupInputs() {
+    document.addEventListener('keydown', (e) => handleKey(e.key, true));
+    document.addEventListener('keyup', (e) => handleKey(e.key, false));
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (isMobile) {
+        document.getElementById('mobile-controls').style.display = 'flex'; document.getElementById('btn-enter').style.display = 'flex';
+        const bindTouch = (id, keyName) => {
+            const btn = document.getElementById(id);
+            btn.addEventListener('touchstart', (e) => { e.preventDefault(); keys[keyName] = true; });
+            btn.addEventListener('touchend', (e) => { e.preventDefault(); keys[keyName] = false; });
+        };
+        bindTouch('btn-up', 'up'); bindTouch('btn-down', 'down'); bindTouch('btn-left', 'left'); bindTouch('btn-right', 'right'); bindTouch('btn-enter', 'enter');
+    }
+}
+function handleKey(key, isPressed) {
+    if (key === 'ArrowUp' || key === 'w' || key === 'W') keys.up = isPressed;
+    if (key === 'ArrowDown' || key === 's' || key === 'S') keys.down = isPressed;
+    if (key === 'ArrowLeft' || key === 'a' || key === 'A') keys.left = isPressed;
+    if (key === 'ArrowRight' || key === 'd' || key === 'D') keys.right = isPressed;
+    if (key === 'Enter') keys.enter = isPressed;
+}
+
+// ===========================
+//  遊戲邏輯
+// ===========================
+function gameLoop() {
+    if (!keys.enter) keys.enterLocked = false;
+    if (currentState === STATE.MENU) { if (keys.enter && !keys.enterLocked) { keys.enterLocked = true; goToDifficultySelect(); } } 
+    else if (currentState === STATE.DIFFICULTY) {
+        if (keys.enter && !keys.enterLocked) { keys.enterLocked = true; startGame(); }
+        if (keys.up && !keys.upLocked) { difficulty = 'EASY'; updateDifficultyUI(); keys.upLocked = true; }
+        if (keys.down && !keys.downLocked) { difficulty = 'HARD'; updateDifficultyUI(); keys.downLocked = true; }
+        if (!keys.up) keys.upLocked = false; if (!keys.down) keys.downLocked = false;
+    }
+    else if (currentState === STATE.PLAYING) { updatePlayer(); checkCollisionsAndItems(); renderScene(); }
+    else if (currentState === STATE.GAMEOVER || currentState === STATE.WIN) { if (keys.enter && !keys.enterLocked) { keys.enterLocked = true; resetGame(); } }
+}
+function goToDifficultySelect() {
+    currentState = STATE.DIFFICULTY; document.getElementById('menu-layer').style.display = 'none'; document.getElementById('difficulty-layer').style.display = 'flex'; updateDifficultyUI();
+}
+function updateDifficultyUI() {
+    const easyBtn = document.getElementById('opt-easy'); const hardBtn = document.getElementById('opt-hard');
+    if (difficulty === 'EASY') { easyBtn.classList.add('selected'); hardBtn.classList.remove('selected'); } else { easyBtn.classList.remove('selected'); hardBtn.classList.add('selected'); }
+}
+function startGame() {
+    currentState = STATE.PLAYING; document.getElementById('difficulty-layer').style.display = 'none'; document.getElementById('ui-layer').style.display = 'block';
+    player.x = 1.5; player.y = 1.5; player.dir = Math.PI / 2; score = 0; timeLeft = 180; updateUI();
+    spawnItemsAndGuides();
+    if (timerInterval) clearInterval(timerInterval);
+    timerInterval = setInterval(() => { timeLeft--; updateUI(); if (timeLeft <= 0) endGame(false); }, 1000);
+}
+function resetGame() {
+    currentState = STATE.MENU; document.getElementById('gameover-layer').style.display = 'none'; document.getElementById('menu-layer').style.display = 'flex'; renderBackground();
+}
+function endGame(win) {
+    currentState = win ? STATE.WIN : STATE.GAMEOVER; clearInterval(timerInterval); keys.enterLocked = true;
+    const title = win ? "恭喜過關!" : "時間到 / 失敗!"; const color = win ? '#00FF00' : '#FF0000';
+    document.getElementById('gameover-title').innerText = title; document.getElementById('gameover-title').style.color = color; document.getElementById('gameover-score').innerText = `最終分數: ${score}`;
+    document.getElementById('ui-layer').style.display = 'none'; document.getElementById('gameover-layer').style.display = 'flex';
+}
+function updatePlayer() {
+    if (keys.left) player.dir -= player.rotSpeed; if (keys.right) player.dir += player.rotSpeed;
+    let moveStep = 0; if (keys.up) moveStep = player.moveSpeed; if (keys.down) moveStep = -player.moveSpeed;
+    if (moveStep !== 0) {
+        let newX = player.x + Math.cos(player.dir) * moveStep; let newY = player.y + Math.sin(player.dir) * moveStep;
+        if (!isWall(newX, player.y)) player.x = newX; if (!isWall(player.x, newY)) player.y = newY;
+    }
+}
+function isWall(x, y) {
+    if (x < 0 || x >= mapWidth || y < 0 || y >= mapHeight) return true;
+    // 撞到牆壁(1) 或 出口牆(9) 都算撞牆，不能穿過
+    if (gameMap[Math.floor(y)][Math.floor(x)] > 0) return true;
+    return false;
+}
+function checkCollisionsAndItems() {
+    // 檢查是否太靠近出口牆 (距離小於半徑) 來觸發勝利
+    let mapX = Math.floor(player.x); let mapY = Math.floor(player.y);
+    // 檢查四周是否有出口牆
+    for(let dy=-1; dy<=1; dy++) {
+        for(let dx=-1; dx<=1; dx++) {
+            if(gameMap[mapY+dy][mapX+dx] === 9) {
+                 let distToExit = Math.sqrt((player.x - (mapX+dx+0.5))**2 + (player.y - (mapY+dy+0.5))**2);
+                 if(distToExit < 0.8) { endGame(true); return; }
+            }
+        }
+    }
+
+    for (let item of items) {
+        if (item.active && item.isCollectable) {
+            let dist = Math.sqrt((player.x - item.x)**2 + (player.y - item.y)**2);
+            if (dist < 0.5) { item.active = false; score += item.score; updateUI(); }
+        }
+    }
+}
+function updateUI() {
+    document.getElementById('score-display').innerText = `SCORE: ${score}`; document.getElementById('time-display').innerText = `TIME: ${timeLeft}`;
+}
+
+// ===========================
+//  生成系統與尋路
+// ===========================
+function spawnItemsAndGuides() {
+    items = [];
+    // 1. 生成寶物
+    let count = 15;
+    for(let i=0; i<count; i++) {
+        let rx, ry;
+        do { rx = Math.floor(Math.random() * mapWidth); ry = Math.floor(Math.random() * mapHeight);
+        } while (gameMap[ry][rx] !== 0 || (Math.floor(player.x) === rx && Math.floor(player.y) === ry));
+        let type = ITEM_TYPES[Math.floor(Math.random() * ITEM_TYPES.length)];
+        items.push({ x: rx + 0.5, y: ry + 0.5, img: type.img, score: type.score, active: true, isCollectable: true });
+    }
+    // 2. EASY模式路徑指引
+    if (difficulty === 'EASY') {
+        const path = findPathToExit();
+        if (path) {
+            for (let i = 1; i < path.length; i++) { // 不要在終點(出口牆上)放箭頭
+                let p = path[i];
+                items.push({ x: p.x + 0.5, y: p.y + 0.5, img: arrowImg, score: 0, active: true, isCollectable: false });
+            }
+        }
+    }
+    // 3. 放置 EXIT 標示牌
+    for(let y=0; y<mapHeight; y++) {
+        for(let x=0; x<mapWidth; x++) {
+            if(gameMap[y][x] === 9) {
+                items.push({
+                    x: x + 0.5, y: y + 0.5,
+                    img: exitSignImg, score: 0, active: true, 
+                    isCollectable: false, isExitSign: true // 標記為出口牌
+                });
+            }
+        }
+    }
+}
+function findPathToExit() {
+    let startNode = {x: Math.floor(player.x), y: Math.floor(player.y), parent: null};
+    let queue = [startNode]; let visited = new Set(); visited.add(`${startNode.x},${startNode.y}`);
+    let dirs = [[0,1], [0,-1], [1,0], [-1,0]]; let endNode = null;
+    while(queue.length > 0) {
+        let current = queue.shift();
+        if (gameMap[current.y][current.x] === 9) { endNode = current; break; }
+        for (let d of dirs) {
+            let nx = current.x + d[0]; let ny = current.y + d[1];
+            if (nx >=0 && nx < mapWidth && ny >= 0 && ny < mapHeight) {
+                let key = `${nx},${ny}`;
+                if (!visited.has(key) && (gameMap[ny][nx] === 0 || gameMap[ny][nx] === 9)) {
+                    visited.add(key); queue.push({x: nx, y: ny, parent: current});
+                }
+            }
+        }
+    }
+    if (!endNode) return null;
+    let path = []; let curr = endNode;
+    while(curr) { path.push({x: curr.x, y: curr.y}); curr = curr.parent; }
+    return path.reverse();
+}
+
+// ===========================
+//  渲染引擎 (修改重點)
+// ===========================
+
+function renderBackground() {
+    // 繪製天花板 (深灰色)
+//ctx.fillStyle = '#387373'; // 天花板 (暗青色天空)
+
+    ctx.fillStyle = '#555555'; // 天花板 (較亮的水泥灰)
+    ctx.fillRect(0, 0, screenWidth, screenHeight / 2);
+    // 繪製地板 (更深的灰色)
+//    ctx.fillStyle = '#202020'; // 地板 (深色柏油/軌道)
+ctx.fillStyle = '#2E4028'; // 地板 (暗綠色草地)
+    ctx.fillRect(0, screenHeight / 2, screenWidth, screenHeight / 2);
+}
+
+function renderScene() {
+    renderBackground(); let zBuffer = [];
+    for (let x = 0; x < screenWidth; x++) {
+        let rayAngle = (player.dir - FOV / 2) + (x / screenWidth) * FOV;
+        let dist = 0, hit = false, hitType = 0; // 新增 hitType
+        let eyeX = Math.cos(rayAngle), eyeY = Math.sin(rayAngle);
+        let tx = player.x, ty = player.y;
+        while (!hit && dist < 20) {
+            dist += 0.05; tx = player.x + eyeX * dist; ty = player.y + eyeY * dist;
+            let mapX = Math.floor(tx), mapY = Math.floor(ty);
+            // 檢查邊界或是否撞到任何方塊(>0)
+            if (tx<0 || tx>=mapWidth || ty<0 || ty>=mapHeight || gameMap[mapY][mapX] > 0) {
+                hit = true;
+                // 紀錄撞到的類型 (如果是邊界外就預設為牆壁1)
+                hitType = (tx>=0 && tx<mapWidth && ty>=0 && ty<mapHeight) ? gameMap[mapY][mapX] : 1;
+            }
+        }
+        zBuffer[x] = dist;
+        let correctDist = dist * Math.cos(rayAngle - player.dir);
+        let h = screenHeight / correctDist;
+        let bright = Math.max(50, 255 - correctDist * 12);
+        
+        // --- 根據牆壁類型決定顏色 ---
+        if (hitType === 9) {
+            // 出口牆壁：白色 (受亮度影響變灰)
+            ctx.fillStyle = `rgb(${bright}, ${bright}, ${bright})`;
+        } else {
+            // 普通牆壁：紅磚色
+            ctx.fillStyle = `rgb(${bright*0.8}, ${bright*0.4}, ${bright*0.3})`;
+        }
+        ctx.fillRect(x, (screenHeight - h) / 2, 1, h);
+    }
+    drawSprites(zBuffer);
+}
+function drawSprites(zBuffer) {
+    for (let item of items) {
+        if (!item.active) continue;
+        item.dist = Math.sqrt((player.x - item.x)**2 + (player.y - item.y)**2);
+        let dx = item.x - player.x; let dy = item.y - player.y;
+        item.angle = Math.atan2(dy, dx) - player.dir;
+        while(item.angle < -Math.PI) item.angle += 2*Math.PI; while(item.angle > Math.PI) item.angle -= 2*Math.PI;
+    }
+    items.sort((a, b) => b.dist - a.dist);
+    for (let item of items) {
+        if (!item.active || item.dist < 0.5) continue;
+        if(Math.abs(item.angle) < FOV / 1.5) { 
+            let screenX = (0.5 * (item.angle / (FOV / 2)) + 0.5) * screenWidth;
+            let size = screenHeight / item.dist * 0.4;
+            // 地板指引箭頭縮小
+            if (!item.isCollectable && !item.isExitSign) size *= 0.6;
+            let drawY = (screenHeight - size) / 2 + size / 2; 
+            // 地板指引箭頭貼地，EXIT牌子位置正常
+            if (!item.isCollectable && !item.isExitSign) drawY += size * 0.5;
+
+            let cX = Math.floor(screenX);
+            if(cX >=0 && cX < screenWidth && item.dist < zBuffer[cX]) {
+                if (item.img.complete) {
+                    ctx.imageSmoothingEnabled = false; 
+                    ctx.drawImage(item.img, screenX - size/2, drawY - size/2, size, size);
+                }
+            }
+        }
+    }
+}
+init();
+</script>
+</body>
+</html>
